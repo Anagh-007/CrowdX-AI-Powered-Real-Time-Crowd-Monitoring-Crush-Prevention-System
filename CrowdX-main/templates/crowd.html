@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>CrowdGuard — Area Safety Status</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+  :root {
+    --safe: #00E5A0;
+    --warn: #FFB703;
+    --danger: #E63946;
+    --bg-safe: #021A12;
+    --bg-warn: #1A1200;
+    --bg-danger: #1A0407;
+    --text: #F0F3FA;
+    --muted: rgba(240,243,250,0.55);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:'DM Sans',sans-serif;overflow-x:hidden}
+  body{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    background:var(--bg-safe);
+    color:var(--text);
+    transition:background 0.8s ease;
+    padding:0 0 40px;
+  }
+
+  /* ── PULSING BG ── */
+  body::before{
+    content:'';
+    position:fixed;
+    inset:0;
+    border-radius:50%;
+    background:radial-gradient(circle at 50% 40%, var(--glow,rgba(0,229,160,0.07)) 0%, transparent 60%);
+    pointer-events:none;
+    transition:--glow 0.8s;
+    animation:bgPulse 3s ease-in-out infinite;
+    z-index:0;
+  }
+  @keyframes bgPulse{0%,100%{opacity:1}50%{opacity:0.5}}
+
+  /* ── STATUS HERO ── */
+  .status-hero{
+    position:relative;
+    z-index:1;
+    width:100%;
+    max-width:440px;
+    padding:50px 28px 36px;
+    text-align:center;
+  }
+  .status-ring{
+    width:160px;height:160px;
+    border-radius:50%;
+    margin:0 auto 28px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    transition:all 0.6s ease;
+  }
+  .ring-safe{
+    background:rgba(0,229,160,0.1);
+    border:3px solid rgba(0,229,160,0.4);
+    box-shadow:0 0 60px rgba(0,229,160,0.15),0 0 0 12px rgba(0,229,160,0.05);
+    animation:ringPulseSafe 2.5s ease-in-out infinite;
+  }
+  .ring-warn{
+    background:rgba(255,183,3,0.1);
+    border:3px solid rgba(255,183,3,0.4);
+    box-shadow:0 0 60px rgba(255,183,3,0.15),0 0 0 12px rgba(255,183,3,0.05);
+    animation:ringPulseWarn 2s ease-in-out infinite;
+  }
+  .ring-danger{
+    background:rgba(230,57,70,0.12);
+    border:3px solid rgba(230,57,70,0.5);
+    box-shadow:0 0 60px rgba(230,57,70,0.2),0 0 0 12px rgba(230,57,70,0.07);
+    animation:ringPulseDanger 1s ease-in-out infinite;
+  }
+  @keyframes ringPulseSafe{0%,100%{box-shadow:0 0 40px rgba(0,229,160,0.1)}50%{box-shadow:0 0 80px rgba(0,229,160,0.25)}}
+  @keyframes ringPulseWarn{0%,100%{box-shadow:0 0 40px rgba(255,183,3,0.1)}50%{box-shadow:0 0 80px rgba(255,183,3,0.3)}}
+  @keyframes ringPulseDanger{0%,100%{box-shadow:0 0 40px rgba(230,57,70,0.15)}50%{box-shadow:0 0 100px rgba(230,57,70,0.4)}}
+
+  .status-icon{font-size:4rem;line-height:1;transition:all 0.4s}
+  .status-label{
+    font-family:'Syne',sans-serif;
+    font-size:2.4rem;
+    font-weight:800;
+    letter-spacing:-1px;
+    margin-bottom:10px;
+    transition:color 0.5s;
+  }
+  .label-safe{color:var(--safe)}
+  .label-warn{color:var(--warn)}
+  .label-danger{color:var(--danger)}
+
+  .status-headline{
+    font-size:1.1rem;
+    font-weight:500;
+    margin-bottom:8px;
+    transition:all 0.4s;
+  }
+  .status-body{
+    font-size:0.9rem;
+    color:var(--muted);
+    line-height:1.6;
+    font-weight:300;
+  }
+
+  /* ── ACTION CARD ── */
+  .action-card{
+    position:relative;z-index:1;
+    width:calc(100% - 48px);
+    max-width:380px;
+    border-radius:20px;
+    padding:22px 24px;
+    margin:0 24px 20px;
+    text-align:center;
+    transition:all 0.5s;
+  }
+  .action-safe{background:rgba(0,229,160,0.08);border:1.5px solid rgba(0,229,160,0.25)}
+  .action-warn{background:rgba(255,183,3,0.08);border:1.5px solid rgba(255,183,3,0.3)}
+  .action-danger{background:rgba(230,57,70,0.1);border:1.5px solid rgba(230,57,70,0.35);animation:cardDanger 1.5s ease-in-out infinite}
+  @keyframes cardDanger{0%,100%{border-color:rgba(230,57,70,0.35)}50%{border-color:rgba(230,57,70,0.7)}}
+  .action-icon{font-size:2rem;margin-bottom:10px}
+  .action-title{
+    font-family:'Syne',sans-serif;
+    font-size:1rem;
+    font-weight:700;
+    margin-bottom:6px;
+    text-transform:uppercase;
+    letter-spacing:0.5px;
+  }
+  .action-text{font-size:0.88rem;color:var(--muted);line-height:1.6}
+  .action-safe .action-title{color:var(--safe)}
+  .action-warn .action-title{color:var(--warn)}
+  .action-danger .action-title{color:var(--danger)}
+
+  /* ── STATS ROW ── */
+  .stats-row{
+    position:relative;z-index:1;
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:10px;
+    width:calc(100% - 48px);
+    max-width:380px;
+    margin:0 24px 20px;
+  }
+  .stat-box{
+    background:rgba(255,255,255,0.04);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:14px;
+    padding:14px 10px;
+    text-align:center;
+  }
+  .stat-num{
+    font-family:'Syne',sans-serif;
+    font-size:1.6rem;
+    font-weight:800;
+    line-height:1;
+    margin-bottom:4px;
+  }
+  .stat-lbl{font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px}
+
+  /* ── ZONE MINI MAP ── */
+  .zone-card{
+    position:relative;z-index:1;
+    width:calc(100% - 48px);
+    max-width:380px;
+    background:rgba(255,255,255,0.03);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:20px;
+    padding:18px;
+    margin:0 24px 20px;
+  }
+  .zone-card-title{
+    font-family:'Syne',sans-serif;
+    font-size:0.72rem;
+    font-weight:700;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:12px;
+    text-align:center;
+  }
+  .mini-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .mini-cell{
+    aspect-ratio:1;
+    border-radius:10px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:3px;
+    border:1px solid transparent;
+  }
+  .mc-safe{background:rgba(0,229,160,0.08);border-color:rgba(0,229,160,0.2)}
+  .mc-danger{background:rgba(230,57,70,0.12);border-color:rgba(230,57,70,0.35);animation:zone-danger 1.5s ease-in-out infinite}
+  .mc-best{background:rgba(72,149,239,0.1);border-color:rgba(72,149,239,0.3)}
+  .mc-warn{background:rgba(255,183,3,0.08);border-color:rgba(255,183,3,0.22)}
+  @keyframes zone-danger{0%,100%{box-shadow:none}50%{box-shadow:0 0 10px rgba(230,57,70,0.3)}}
+  .mc-num{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:800;line-height:1}
+  .mc-safe .mc-num{color:var(--safe)}
+  .mc-danger .mc-num{color:var(--danger)}
+  .mc-best .mc-num{color:#4895EF}
+  .mc-warn .mc-num{color:var(--warn)}
+  .mc-tag{font-size:0.48rem;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;opacity:0.8}
+
+  /* ── BOTTOM BAR ── */
+  .bottom-bar{
+    position:relative;z-index:1;
+    width:calc(100% - 48px);
+    max-width:380px;
+    text-align:center;
+    margin-top:4px;
+  }
+  .last-update{font-size:0.72rem;color:var(--muted);margin-bottom:6px}
+  .powered{font-size:0.65rem;color:rgba(240,243,250,0.25);letter-spacing:0.5px}
+
+  /* ── SOS BUTTON ── */
+  .sos-btn{
+    position:fixed;
+    bottom:24px;right:24px;
+    z-index:200;
+    width:56px;height:56px;
+    border-radius:50%;
+    background:var(--danger);
+    color:#fff;
+    border:none;
+    font-family:'Syne',sans-serif;
+    font-weight:800;
+    font-size:0.75rem;
+    cursor:pointer;
+    box-shadow:0 0 24px rgba(230,57,70,0.5);
+    animation:sosPulse 2s ease-in-out infinite;
+    display:flex;align-items:center;justify-content:center;
+  }
+  @keyframes sosPulse{0%,100%{box-shadow:0 0 20px rgba(230,57,70,0.4)}50%{box-shadow:0 0 40px rgba(230,57,70,0.7)}}
+  .sos-modal{
+    position:fixed;inset:0;z-index:300;
+    background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);
+    display:none;align-items:center;justify-content:center;padding:24px;
+  }
+  .sos-modal.open{display:flex}
+  .sos-inner{
+    background:#0F0F12;border:1px solid rgba(230,57,70,0.3);
+    border-radius:20px;padding:28px;width:100%;max-width:360px;text-align:center;
+  }
+  .sos-title{font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--danger);margin-bottom:8px}
+  .sos-sub{font-size:0.88rem;color:var(--muted);margin-bottom:20px;line-height:1.6}
+  .sos-actions{display:flex;flex-direction:column;gap:10px}
+  .sos-action-btn{
+    padding:14px;border-radius:12px;border:1px solid;font-family:'DM Sans',sans-serif;
+    font-size:0.9rem;font-weight:500;cursor:pointer;text-decoration:none;display:block;
+    transition:all 0.2s;
+  }
+  .sos-emergency{background:rgba(230,57,70,0.15);border-color:rgba(230,57,70,0.4);color:var(--danger)}
+  .sos-stay-calm{background:rgba(0,229,160,0.08);border-color:rgba(0,229,160,0.25);color:var(--safe)}
+  .sos-close{background:transparent;border-color:rgba(255,255,255,0.1);color:var(--muted);margin-top:4px}
+</style>
+</head>
+<body>
+
+<!-- STATUS HERO -->
+<div class="status-hero">
+  <div class="status-ring ring-safe" id="statusRing">
+    <div class="status-icon" id="statusIcon">✅</div>
+  </div>
+  <div class="status-label label-safe" id="statusLabel">SAFE</div>
+  <div class="status-headline" id="statusHeadline">This area is currently safe</div>
+  <div class="status-body" id="statusBody">Crowd levels are normal. You may proceed.</div>
+</div>
+
+<!-- ACTION CARD -->
+<div class="action-card action-safe" id="actionCard">
+  <div class="action-icon" id="actionIcon">🧭</div>
+  <div class="action-title" id="actionTitle">You may continue</div>
+  <div class="action-text" id="actionText">No crowd risk detected in your zone.</div>
+</div>
+
+<!-- STATS -->
+<div class="stats-row">
+  <div class="stat-box">
+    <div class="stat-num" id="sCount" style="color:var(--safe)">0</div>
+    <div class="stat-lbl">People</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-num" id="sTrend" style="color:var(--safe);font-size:0.9rem">STABLE</div>
+    <div class="stat-lbl">Trend</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-num" id="sPred" style="color:#4895EF">0</div>
+    <div class="stat-lbl">Predicted</div>
+  </div>
+</div>
+
+<!-- ZONE MINI MAP -->
+<div class="zone-card">
+  <div class="zone-card-title">Live Zone Map — Find a Safe Spot</div>
+  <div class="mini-grid" id="crowdZoneGrid"></div>
+</div>
+
+<!-- BOTTOM -->
+<div class="bottom-bar">
+  <div class="last-update">Last updated: <span id="lastUpdate">just now</span></div>
+  <div class="powered">Powered by CrowdGuard AI · Real-time Safety System</div>
+</div>
+
+<!-- SOS BUTTON -->
+<button class="sos-btn" onclick="document.getElementById('sosModal').classList.add('open')">SOS</button>
+
+<!-- SOS MODAL -->
+<div class="sos-modal" id="sosModal">
+  <div class="sos-inner">
+    <div class="sos-title">🚨 Emergency Help</div>
+    <div class="sos-sub">If you feel unsafe or are in danger, take one of these actions immediately:</div>
+    <div class="sos-actions">
+      <a href="tel:100" class="sos-action-btn sos-emergency">📞 Call Emergency Services (100)</a>
+      <a href="tel:112" class="sos-action-btn sos-emergency">📞 Call 112 (Universal Emergency)</a>
+      <div class="sos-action-btn sos-stay-calm" onclick="document.getElementById('sosModal').classList.remove('open')">
+        ✅ I'm okay — stay calm, move to open space
+      </div>
+      <div class="sos-action-btn sos-close" onclick="document.getElementById('sosModal').classList.remove('open')">Close</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const socket = io();
+
+const configs = {
+  SAFE: {
+    bg: '#021A12', glow: 'rgba(0,229,160,0.07)',
+    ring: 'ring-safe', icon: '✅', labelClass: 'label-safe', label: 'SAFE',
+    headline: 'This area is currently safe',
+    body: 'Crowd levels are normal. You may proceed freely.',
+    actionCard: 'action-safe', actionIcon: '🧭',
+    actionTitle: 'You may continue',
+    actionText: 'No crowd risk detected in your zone.'
+  },
+  WARNING: {
+    bg: '#1A1200', glow: 'rgba(255,183,3,0.07)',
+    ring: 'ring-warn', icon: '⚠️', labelClass: 'label-warn', label: 'CAUTION',
+    headline: 'Crowd is growing in this area',
+    body: 'Consider moving to a less crowded zone. See the map below.',
+    actionCard: 'action-warn', actionIcon: '🚶',
+    actionTitle: 'Consider Moving',
+    actionText: 'Crowd is increasing. Move toward the highlighted safe zone on the map.'
+  },
+  DANGER: {
+    bg: '#1A0407', glow: 'rgba(230,57,70,0.1)',
+    ring: 'ring-danger', icon: '🚨', labelClass: 'label-danger', label: 'DANGER',
+    headline: '⚠️ This area is overcrowded!',
+    body: 'Risk of crowd crush is HIGH. Please move to the safe zone immediately.',
+    actionCard: 'action-danger', actionIcon: '🏃',
+    actionTitle: 'MOVE NOW — Leave This Area',
+    actionText: 'Danger detected! Move calmly to the nearest safe zone shown on the map below. Do not push.'
+  }
+};
+
+let lastStatus = '';
+
+function renderMiniGrid(zonesObj, overcrowdZones, bestZone) {
+  const grid = document.getElementById('crowdZoneGrid');
+  let html = '';
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const key = `(${r}, ${c})`;
+      const z = zonesObj ? zonesObj[key] : null;
+      const count = z ? z.count : 0;
+      let cls = 'mc-safe', tag = 'SAFE';
+      if (key === bestZone) { cls = 'mc-best'; tag = 'BEST'; }
+      else if (overcrowdZones && overcrowdZones.includes(key)) { cls = 'mc-danger'; tag = 'UNSAFE'; }
+      else if (count >= 2) { cls = 'mc-warn'; tag = 'WARN'; }
+      html += `<div class="mini-cell ${cls}">
+        <div class="mc-num">${count}</div>
+        <div class="mc-tag">${tag}</div>
+      </div>`;
+    }
+  }
+  grid.innerHTML = html;
+}
+
+function applyStatus(status, data) {
+  if (status === lastStatus) return;
+  lastStatus = status;
+
+  const cfg = configs[status] || configs.SAFE;
+  document.body.style.background = cfg.bg;
+  document.getElementById('statusRing').className = 'status-ring ' + cfg.ring;
+  document.getElementById('statusIcon').textContent = cfg.icon;
+  document.getElementById('statusLabel').textContent = cfg.label;
+  document.getElementById('statusLabel').className = 'status-label ' + cfg.labelClass;
+  document.getElementById('statusHeadline').textContent = cfg.headline;
+  document.getElementById('statusBody').textContent = cfg.body;
+  document.getElementById('actionCard').className = 'action-card ' + cfg.actionCard;
+  document.getElementById('actionIcon').textContent = cfg.actionIcon;
+  document.getElementById('actionTitle').textContent = cfg.actionTitle;
+
+  // Dynamic action text with best zone hint
+  let actionText = cfg.actionText;
+  if (data && data.cam1 && data.cam1.best_zone && status !== 'SAFE') {
+    actionText += ` Best zone right now: Zone ${data.cam1.best_zone}.`;
+  }
+  document.getElementById('actionText').textContent = actionText;
+
+  // Vibrate on danger (mobile)
+  if (status === 'DANGER' && navigator.vibrate) {
+    navigator.vibrate([300, 100, 300, 100, 300]);
+  }
+}
+
+socket.on('crowd_update', (data) => {
+  const c1 = data.cam1;
+  const trend = c1.trend;
+
+  applyStatus(data.global_status, data);
+
+  document.getElementById('sCount').textContent = c1.total;
+  document.getElementById('sTrend').textContent = trend.trend_label;
+  document.getElementById('sPred').textContent = trend.predicted_count;
+
+  const trendColors = { SURGING:'var(--danger)', GROWING:'var(--warn)', STABLE:'var(--safe)', DECLINING:'#4895EF' };
+  document.getElementById('sTrend').style.color = trendColors[trend.trend_label] || 'var(--safe)';
+  document.getElementById('sCount').style.color = c1.overcrowd ? 'var(--danger)' : 'var(--safe)';
+
+  renderMiniGrid(c1.zones, c1.overcrowd_zones, c1.best_zone);
+  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+});
+
+// Fallback polling if socket fails
+setInterval(() => {
+  fetch('/api/crowd-status').then(r => r.json()).then(d => {
+    // Socket handles it; this is a backup
+  }).catch(() => {});
+}, 5000);
+</script>
+</body>
+</html>

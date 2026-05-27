@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CrowdX — Command Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#07090F;--card:#101420;--border:rgba(255,255,255,0.07);--text:#E8EBF5;--muted:#6B7494;--accent:#E63946;--safe:#00E5A0;--warn:#FFB703;--blue:#4895EF;--mono:'DM Mono',monospace}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(72,149,239,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(72,149,239,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+  .topbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;height:56px;background:rgba(7,9,15,0.97);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+  .logo{font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;display:flex;align-items:center;gap:8px}
+  .logo-pulse{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:blink 1.5s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+  .topbar-right{display:flex;align-items:center;gap:1rem}
+  .status-chip{font-family:var(--mono);font-size:0.7rem;padding:4px 12px;border-radius:4px;border:1px solid;letter-spacing:1px}
+  .chip-safe{background:rgba(0,229,160,0.08);border-color:rgba(0,229,160,0.25);color:var(--safe)}
+  .chip-warn{background:rgba(255,183,3,0.08);border-color:rgba(255,183,3,0.25);color:var(--warn)}
+  .chip-danger{background:rgba(230,57,70,0.1);border-color:rgba(230,57,70,0.3);color:var(--accent);animation:chip-pulse 1s ease-in-out infinite}
+  @keyframes chip-pulse{0%,100%{box-shadow:none}50%{box-shadow:0 0 12px rgba(230,57,70,0.4)}}
+  .time-display{font-family:var(--mono);font-size:0.75rem;color:var(--muted)}
+  .crowd-btn{background:var(--safe);color:#000;border:none;padding:6px 16px;border-radius:5px;font-weight:600;font-size:0.8rem;cursor:pointer;text-decoration:none}
+  .layout{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1fr 340px;gap:1px;background:var(--border);min-height:calc(100vh - 56px)}
+  .panel{background:var(--bg)}
+  .cam-panel{display:flex;flex-direction:column}
+  .cam-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--card)}
+  .cam-label{font-family:'Syne',sans-serif;font-size:0.78rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+  .rec-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
+  .cam-meta{font-family:var(--mono);font-size:0.65rem;color:var(--muted)}
+  .cam-feed{position:relative;background:#000;overflow:hidden;height:300px}
+  .cam-feed img{width:100%;height:100%;object-fit:cover;display:block}
+  .cam-overlay{position:absolute;bottom:0;left:0;right:0;padding:10px 14px;background:linear-gradient(transparent,rgba(0,0,0,0.85));display:flex;align-items:flex-end;justify-content:space-between;pointer-events:none}
+  .cam-count{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800}
+  .cam-count.danger{color:var(--accent)}.cam-count.safe{color:var(--safe)}
+  .cam-trend-badge{font-family:var(--mono);font-size:0.65rem;padding:3px 8px;border-radius:3px;letter-spacing:0.5px}
+  .badge-surging{background:rgba(230,57,70,0.2);color:var(--accent);border:1px solid rgba(230,57,70,0.4)}
+  .badge-growing{background:rgba(255,183,3,0.15);color:var(--warn);border:1px solid rgba(255,183,3,0.3)}
+  .badge-stable{background:rgba(0,229,160,0.1);color:var(--safe);border:1px solid rgba(0,229,160,0.25)}
+  .badge-declining{background:rgba(72,149,239,0.1);color:var(--blue);border:1px solid rgba(72,149,239,0.3)}
+  .cam-stats{display:grid;grid-template-columns:repeat(3,1fr)}
+  .cam-stat{padding:10px 12px;border-right:1px solid var(--border);border-top:1px solid var(--border);text-align:center}
+  .cam-stat:last-child{border-right:none}
+  .cs-val{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:700}
+  .cs-lbl{font-size:0.65rem;color:var(--muted);margin-top:2px;letter-spacing:0.5px;text-transform:uppercase}
+  .zone-section{padding:10px 14px;border-top:1px solid var(--border)}
+  .zone-header{font-family:'Syne',sans-serif;font-size:0.7rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .zone-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .zone-cell{padding:8px 6px;border-radius:6px;text-align:center;border:1px solid transparent;transition:all 0.3s}
+  .zc-safe{background:rgba(0,229,160,0.06);border-color:rgba(0,229,160,0.18)}
+  .zc-danger{background:rgba(230,57,70,0.1);border-color:rgba(230,57,70,0.3);animation:zdanger 2s ease-in-out infinite}
+  .zc-best{background:rgba(72,149,239,0.08);border-color:rgba(72,149,239,0.25)}
+  .zc-warn{background:rgba(255,183,3,0.07);border-color:rgba(255,183,3,0.2)}
+  @keyframes zdanger{0%,100%{box-shadow:none}50%{box-shadow:0 0 14px rgba(230,57,70,0.3)}}
+  .zc-id{font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px}
+  .zc-count{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800}
+  .zc-safe .zc-count{color:var(--safe)}.zc-danger .zc-count{color:var(--accent)}.zc-best .zc-count{color:var(--blue)}.zc-warn .zc-count{color:var(--warn)}
+  .zc-tag{font-size:0.5rem;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;margin-top:2px;opacity:0.85}
+  /* SIDEBAR */
+  .sidebar{grid-row:1/3;display:flex;flex-direction:column;border-left:1px solid var(--border);overflow-y:auto}
+  .sb-section{padding:14px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .sb-title{font-family:'Syne',sans-serif;font-size:0.7rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  /* DUAL METRICS — side by side */
+  .dual-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .cam-metric-block{background:var(--card);border-radius:8px;padding:10px;border:1px solid var(--border)}
+  .cmb-header{font-family:'Syne',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  .cmb-header.c1{color:#E63946}.cmb-header.c2{color:#4895EF}
+  .cmb-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+  .cmb-row:last-child{margin-bottom:0}
+  .cmb-label{font-size:0.68rem;color:var(--muted)}
+  .cmb-val{font-family:'Syne',sans-serif;font-size:0.85rem;font-weight:700}
+  /* CHART */
+  .chart-legend{display:flex;gap:12px;margin-bottom:6px;font-family:var(--mono);font-size:0.62rem}
+  .legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+  canvas{width:100%!important;height:90px!important}
+  /* ALERT LOG */
+  .alert-log{padding:0 14px 10px;overflow-y:auto;max-height:220px}
+  .log-item{padding:8px 10px;border-radius:6px;margin-bottom:6px;border-left:3px solid;font-size:0.75rem;line-height:1.5}
+  .log-safe{background:rgba(0,229,160,0.05);border-color:var(--safe)}
+  .log-warn{background:rgba(255,183,3,0.06);border-color:var(--warn)}
+  .log-danger{background:rgba(230,57,70,0.08);border-color:var(--accent)}
+  .log-time{font-family:var(--mono);font-size:0.62rem;color:var(--muted);display:block;margin-bottom:2px}
+  /* QR */
+  .qr-section{padding:14px;text-align:center;flex-shrink:0}
+  .qr-wrap{background:white;padding:8px;border-radius:8px;display:inline-block;margin:6px 0}
+  .qr-wrap img{width:90px;height:90px;display:block}
+  .qr-label{font-size:0.72rem;color:var(--muted);line-height:1.5}
+  .qr-url{font-family:var(--mono);font-size:0.68rem;color:var(--blue);margin-top:4px;word-break:break-all}
+  @media(max-width:1100px){.layout{grid-template-columns:1fr 1fr}.sidebar{grid-row:auto;grid-column:1/3;border-left:none}}
+  @media(max-width:700px){.layout{grid-template-columns:1fr}.sidebar{grid-column:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo"><div class="logo-pulse"></div>CrowdX — Command</div>
+  <div class="topbar-right">
+    <span class="time-display" id="clock">--:--:--</span>
+    <span class="status-chip chip-safe" id="global-chip">● SAFE</span>
+    <a href="/crowd" target="_blank" class="crowd-btn">Crowd View ↗</a>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- CAM 1 -->
+  <div class="panel cam-panel">
+    <div class="cam-header">
+      <div class="cam-label"><div class="rec-dot"></div>Camera 1 — Laptop</div>
+      <div class="cam-meta" id="c1-fps">0 fps</div>
+    </div>
+    <div class="cam-feed">
+      <img id="cam1-img" src="/stream/cam1" alt="cam1"/>
+      <div class="cam-overlay">
+        <div class="cam-count safe" id="c1-count">0</div>
+        <div class="cam-trend-badge badge-stable" id="c1-trend">STABLE</div>
+      </div>
+    </div>
+    <div class="cam-stats">
+      <div class="cam-stat"><div class="cs-val" id="c1-growth" style="color:var(--warn)">0.0</div><div class="cs-lbl">Growth/s</div></div>
+      <div class="cam-stat"><div class="cs-val" id="c1-predicted" style="color:var(--blue)">0</div><div class="cs-lbl">Predicted</div></div>
+      <div class="cam-stat"><div class="cs-val" id="c1-zones" style="color:var(--accent)">0</div><div class="cs-lbl">Unsafe Zones</div></div>
+    </div>
+    <div class="zone-section">
+      <div class="zone-header">Zone Map</div>
+      <div class="zone-grid" id="c1-zone-grid"></div>
+    </div>
+  </div>
+
+  <!-- CAM 2 -->
+  <div class="panel cam-panel">
+    <div class="cam-header">
+      <div class="cam-label"><div class="rec-dot"></div>Camera 2 — Phone</div>
+      <div class="cam-meta" id="c2-fps">0 fps</div>
+    </div>
+    <div class="cam-feed">
+      <img id="cam2-img" src="/stream/cam2" alt="cam2"/>
+      <div class="cam-overlay">
+        <div class="cam-count safe" id="c2-count">0</div>
+        <div class="cam-trend-badge badge-stable" id="c2-trend">STABLE</div>
+      </div>
+    </div>
+    <div class="cam-stats">
+      <div class="cam-stat"><div class="cs-val" id="c2-growth" style="color:var(--warn)">0.0</div><div class="cs-lbl">Growth/s</div></div>
+      <div class="cam-stat"><div class="cs-val" id="c2-predicted" style="color:var(--blue)">0</div><div class="cs-lbl">Predicted</div></div>
+      <div class="cam-stat"><div class="cs-val" id="c2-zones" style="color:var(--accent)">0</div><div class="cs-lbl">Unsafe Zones</div></div>
+    </div>
+    <div class="zone-section">
+      <div class="zone-header">Zone Map</div>
+      <div class="zone-grid" id="c2-zone-grid"></div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="panel sidebar">
+
+    <!-- LIVE METRICS: CAM1 + CAM2 side by side — always visible -->
+    <div class="sb-section">
+      <div class="sb-title">Live Metrics</div>
+      <div class="dual-metrics">
+        <div class="cam-metric-block">
+          <div class="cmb-header c1">● CAM 1</div>
+          <div class="cmb-row"><span class="cmb-label">People</span><span class="cmb-val" id="s1-people" style="color:var(--accent)">0</span></div>
+          <div class="cmb-row"><span class="cmb-label">Trend</span><span class="cmb-val" id="s1-trend" style="color:var(--safe)">STABLE</span></div>
+          <div class="cmb-row"><span class="cmb-label">10s Pred</span><span class="cmb-val" id="s1-pred" style="color:var(--blue)">0</span></div>
+          <div class="cmb-row"><span class="cmb-label">Best Zone</span><span class="cmb-val" id="s1-best" style="color:var(--safe);font-size:0.72rem">—</span></div>
+        </div>
+        <div class="cam-metric-block">
+          <div class="cmb-header c2">● CAM 2</div>
+          <div class="cmb-row"><span class="cmb-label">People</span><span class="cmb-val" id="s2-people" style="color:var(--accent)">0</span></div>
+          <div class="cmb-row"><span class="cmb-label">Trend</span><span class="cmb-val" id="s2-trend" style="color:var(--safe)">STABLE</span></div>
+          <div class="cmb-row"><span class="cmb-label">10s Pred</span><span class="cmb-val" id="s2-pred" style="color:var(--blue)">0</span></div>
+          <div class="cmb-row"><span class="cmb-label">Best Zone</span><span class="cmb-val" id="s2-best" style="color:var(--safe);font-size:0.72rem">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dual trend chart -->
+    <div class="sb-section">
+      <div class="sb-title">Crowd Trend</div>
+      <div class="chart-legend">
+        <span><span class="legend-dot" style="background:#E63946"></span><span style="color:#E63946">Cam 1</span></span>
+        <span><span class="legend-dot" style="background:#4895EF"></span><span style="color:#4895EF">Cam 2</span></span>
+      </div>
+      <canvas id="miniChart"></canvas>
+    </div>
+
+    <!-- Alert log -->
+    <div class="sb-section" style="padding-bottom:6px">
+      <div class="sb-title">Alert Log</div>
+    </div>
+    <div class="alert-log" id="alertLog">
+      <div class="log-item log-safe">
+        <span class="log-time">System Start</span>
+        <span class="log-msg">CrowdX initialised. Cameras connecting...</span>
+      </div>
+    </div>
+
+    <!-- QR -->
+    <div class="qr-section">
+      <div class="sb-title">Crowd Safety QR</div>
+      <div class="qr-wrap">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=90x90&data=http://localhost:5000/crowd" alt="QR"/>
+      </div>
+      <div class="qr-label">Show at venue entrance.<br>Crowd scans → live safety status.</div>
+      <div class="qr-url">http://localhost:5000/crowd</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const ctx=document.getElementById('miniChart').getContext('2d');
+const miniChart=new Chart(ctx,{
+  type:'line',
+  data:{labels:[],datasets:[
+    {label:'Cam1',data:[],borderColor:'#E63946',backgroundColor:'rgba(230,57,70,0.07)',fill:true,tension:0.4,pointRadius:0,borderWidth:1.5},
+    {label:'Cam2',data:[],borderColor:'#4895EF',backgroundColor:'rgba(72,149,239,0.07)',fill:true,tension:0.4,pointRadius:0,borderWidth:1.5}
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{display:false},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#6B7494',font:{size:10}},border:{display:false}}},
+    animation:{duration:200}}
+});
+
+function trendClass(l){return{SURGING:'badge-surging',GROWING:'badge-growing',STABLE:'badge-stable',DECLINING:'badge-declining'}[l]||'badge-stable'}
+function trendColor(l){return{SURGING:'#E63946',GROWING:'#FFB703',STABLE:'#00E5A0',DECLINING:'#4895EF'}[l]||'#00E5A0'}
+
+function renderZones(id,zones,dangerZones,best){
+  const g=document.getElementById(id);if(!g)return;
+  let h='';
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    const k=`(${r}, ${c})`;const z=zones[k]||{count:0};
+    let cls='zc-safe',tag='SAFE';
+    if(k===best){cls='zc-best';tag='BEST';}
+    else if(dangerZones&&dangerZones.includes(k)){cls='zc-danger';tag='UNSAFE';}
+    else if(z.count>=2){cls='zc-warn';tag='WARN';}
+    h+=`<div class="zone-cell ${cls}"><div class="zc-id">${r},${c}</div><div class="zc-count">${z.count||0}</div><div class="zc-tag">${tag}</div></div>`;
+  }
+  g.innerHTML=h;
+}
+
+function addLog(msg,type='safe'){
+  const log=document.getElementById('alertLog');
+  const d=document.createElement('div');
+  d.className=`log-item log-${type}`;
+  d.innerHTML=`<span class="log-time">${new Date().toLocaleTimeString()}</span><span class="log-msg">${msg}</span>`;
+  log.prepend(d);
+  if(log.children.length>25)log.lastChild.remove();
+}
+
+let f1=0,f2=0,fpsT=Date.now();
+document.getElementById('cam1-img').addEventListener('load',()=>f1++);
+document.getElementById('cam2-img').addEventListener('load',()=>f2++);
+setInterval(()=>{
+  const e=(Date.now()-fpsT)/1000;
+  document.getElementById('c1-fps').textContent=Math.round(f1/e)+' fps';
+  document.getElementById('c2-fps').textContent=Math.round(f2/e)+' fps';
+  f1=f2=0;fpsT=Date.now();
+},2000);
+
+const socket=io({reconnectionDelay:1000});
+let lastStatus='SAFE';
+socket.on('connect',()=>addLog('WebSocket connected','safe'));
+socket.on('disconnect',()=>addLog('WebSocket disconnected — reconnecting...','warn'));
+
+socket.on('crowd_update',d=>{
+  const c1=d.cam1,c2=d.cam2,t1=c1.trend,t2=c2.trend;
+
+  // Cam1 feed
+  document.getElementById('c1-count').textContent=c1.total;
+  document.getElementById('c1-count').className='cam-count '+(c1.overcrowd?'danger':'safe');
+  const tb1=document.getElementById('c1-trend');
+  tb1.textContent=t1.trend_label;tb1.className='cam-trend-badge '+trendClass(t1.trend_label);
+  document.getElementById('c1-growth').textContent=(t1.growth_rate>0?'+':'')+t1.growth_rate.toFixed(1);
+  document.getElementById('c1-predicted').textContent=t1.predicted_count;
+  document.getElementById('c1-zones').textContent=c1.overcrowd_zones.length;
+  renderZones('c1-zone-grid',c1.zones,c1.overcrowd_zones,c1.best_zone);
+
+  // Cam2 feed
+  document.getElementById('c2-count').textContent=c2.total;
+  document.getElementById('c2-count').className='cam-count '+(c2.overcrowd?'danger':'safe');
+  const tb2=document.getElementById('c2-trend');
+  tb2.textContent=t2.trend_label;tb2.className='cam-trend-badge '+trendClass(t2.trend_label);
+  document.getElementById('c2-growth').textContent=(t2.growth_rate>0?'+':'')+t2.growth_rate.toFixed(1);
+  document.getElementById('c2-predicted').textContent=t2.predicted_count;
+  document.getElementById('c2-zones').textContent=c2.overcrowd_zones.length;
+  renderZones('c2-zone-grid',c2.zones,c2.overcrowd_zones,c2.best_zone);
+
+  // Sidebar CAM 1
+  document.getElementById('s1-people').textContent=c1.total;
+  document.getElementById('s1-trend').textContent=t1.trend_label;
+  document.getElementById('s1-trend').style.color=trendColor(t1.trend_label);
+  document.getElementById('s1-pred').textContent=t1.predicted_count;
+  document.getElementById('s1-best').textContent=c1.best_zone||'—';
+
+  // Sidebar CAM 2
+  document.getElementById('s2-people').textContent=c2.total;
+  document.getElementById('s2-trend').textContent=t2.trend_label;
+  document.getElementById('s2-trend').style.color=trendColor(t2.trend_label);
+  document.getElementById('s2-pred').textContent=t2.predicted_count;
+  document.getElementById('s2-best').textContent=c2.best_zone||'—';
+
+  // Chart
+  const now=new Date().toLocaleTimeString('en',{hour12:false});
+  miniChart.data.labels.push(now);
+  miniChart.data.datasets[0].data.push(c1.total);
+  miniChart.data.datasets[1].data.push(c2.total);
+  if(miniChart.data.labels.length>40){miniChart.data.labels.shift();miniChart.data.datasets[0].data.shift();miniChart.data.datasets[1].data.shift();}
+  miniChart.update('none');
+
+  // Global chip
+  const chip=document.getElementById('global-chip');
+  const st=d.global_status;
+  chip.textContent='● '+st;
+  chip.className='status-chip '+(st==='DANGER'?'chip-danger':st==='WARNING'?'chip-warn':'chip-safe');
+  if(st!==lastStatus){
+    addLog({DANGER:'🚨 OVERCROWD DETECTED',WARNING:'⚠️ Crowd growing',SAFE:'✅ Status clear'}[st],
+           st==='DANGER'?'danger':st==='WARNING'?'warn':'safe');
+    lastStatus=st;
+  }
+});
+
+setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString('en',{hour12:false});},1000);
+</script>
+</body>
+</html>
